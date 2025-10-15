@@ -1,21 +1,257 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Lesson 4</title>
-    <meta charset="UTF-8"/>
-
-    <script src="src/index.js" type="module"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Полиномим</title>
+    <style>
+        body { font-family: Arial; max-width: 600px; margin: 50px auto; padding: 20px; }
+        .container { border: 1px solid #ccc; padding: 20px; border-radius: 5px; }
+        input, button { padding: 10px; margin: 5px; font-size: 16px; }
+        input { width: 300px; }
+        button { background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        .result { margin-top: 20px; padding: 10px; border: 1px solid #ddd; background: #f9f9f9; min-height: 20px; }
+        .error { color: red; }
+        .success { color: green; }
+    </style>
 </head>
-
 <body>
-<h1>Implement the symbolic diff here</h1>
-<div id="container">
+    <div class="container">
+        <h1>Полиномим</h1>
+        <div>
+            <input type="text" id="expression">
+            <button onclick="calculate()">Ввод</button>
+        </div>
+        <div class="result" id="result">Результат появится тут</div>
+    </div>
 
-</div>
-<div>
-    <button id="demoButton">
-        Add something
-    </button>
-</div>
+    <script>
+        function validateExpression(expr) {
+            const allowedChars = /^[a-zA-Z0-9+\-*^\s(),.]+$/;
+            if (!allowedChars.test(expr)) {
+                throw new Error('Только операции + - * ^');
+            }
+            
+            let balance = 0;
+            for (let char of expr) {
+                if(balance < 0) throw new Error('В начале должна идти открывающая скобка');
+                if (char === '(') balance++;
+                if (char === ')') balance--;
+            }
+            if (balance !== 0) throw new Error('Считайте скобки');
+        }
+
+        function diff(input) {
+            const [expr, varName] = input.split(',').map(s => s.trim());
+            if (!expr || !varName) throw new Error('Не указан дифференциал (я хз, как называется лол)"');
+            
+            validateExpression(expr);
+            
+            const result = differentiate(expr, varName);
+            return simplifyExpression(result);
+        }
+
+        function differentiate(expr, varName) {
+            expr = expr.replace(/\s+/g, '');
+
+            if (!expr.includes(varName)) return '0';
+
+            if (expr === varName) return '1';
+            
+            // Минус в начале
+            if (expr.startsWith('-')) {
+                return '-' + differentiate(expr.substring(1), varName);
+            }
+            
+            // Сумма/разность
+            const terms = splitTerms(expr);
+            if (terms.length > 1) {
+                const derivatives = terms.map(term => differentiate(term, varName));
+                return combineTerms(derivatives);
+            }
+            
+            // Произведение
+            if (expr.includes('*')) {
+                const factors = splitFactors(expr);
+                const resultParts = [];
+                
+                for (let i = 0; i < factors.length; i++) {
+                    const deriv = differentiate(factors[i], varName);
+                    if (deriv === '0') continue;
+                    
+                    const termParts = [...factors];
+                    if (deriv === '1') {
+                        termParts[i] = '';
+                    } else {
+                        termParts[i] = deriv;
+                    }
+                    
+                    const filteredParts = termParts.filter(part => part !== '');
+                    if (filteredParts.length > 0) {
+                        const term = multiplyCoefficients(filteredParts.join('*'));
+                        resultParts.push(term === '' ? '1' : term);
+                    }
+                }
+                
+                return resultParts.length === 0 ? '0' : combineTerms(resultParts);
+            }
+            
+            // Степень
+            const powerMatch = expr.match(/^([a-zA-Z0-9*]+)\^(\d+)$/);
+            if (powerMatch) {
+                const [, base, exp] = powerMatch;
+                if (base === varName || base.includes(varName)) {
+                    const coefficient = parseInt(exp);
+                    const newExp = coefficient - 1;
+                    
+                    if (newExp === 1) {
+                        return multiplyCoefficients(coefficient + '*' + base);
+                    } else if (newExp === 0) {
+                        return coefficient.toString();
+                    } else {
+                        return multiplyCoefficients(coefficient + '*' + base + '^' + newExp);
+                    }
+                }
+            }
+            
+            // Константа умноженная на переменную
+            const constMatch = expr.match(/^(\d+)\*([a-zA-Z]+)$/);
+            if (constMatch) {
+                const [, coefficient, variable] = constMatch;
+                if (variable === varName) {
+                    return coefficient;
+                }
+            }
+            
+            throw new Error(`Cannot differentiate: ${expr}`);
+        }
+
+        function multiplyCoefficients(expr) {
+            if (!expr.includes('*')) return expr;
+            
+            const factors = splitFactors(expr);
+            let coefficient = 1;
+            const otherFactors = [];
+            
+            for (let factor of factors) {
+                if (/^\d+$/.test(factor)) {
+                    coefficient *= parseInt(factor);
+                } else {
+                    otherFactors.push(factor);
+                }
+            }
+            
+            if (coefficient === 1) {
+                return otherFactors.join('*');
+            } else if (otherFactors.length === 0) {
+                return coefficient.toString();
+            } else {
+                return coefficient + '*' + otherFactors.join('*');
+            }
+        }
+
+        function splitTerms(expr) {
+            const terms = [];
+            let current = '';
+            let depth = 0;
+            
+            for (let i = 0; i < expr.length; i++) {
+                const char = expr[i];
+                
+                if (char === '(') depth++;
+                if (char === ')') depth--;
+                
+                if (depth === 0 && (char === '+' || (char === '-' && i > 0))) {
+                    if (current) {
+                        terms.push(current);
+                        current = char === '-' ? '-' : '';
+                    }
+                } else {
+                    current += char;
+                }
+            }
+            
+            if (current) terms.push(current);
+            return terms;
+        }
+
+        function splitFactors(expr) {
+            const factors = [];
+            let current = '';
+            let depth = 0;
+            
+            for (let char of expr) {
+                if (char === '(') depth++;
+                if (char === ')') depth--;
+                
+                if (depth === 0 && char === '*') {
+                    if (current) factors.push(current);
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            
+            if (current) factors.push(current);
+            return factors;
+        }
+
+        function combineTerms(terms) {
+            const nonZeroTerms = terms.filter(term => term !== '0' && term !== '');
+            
+            if (nonZeroTerms.length === 0) return '0';
+            
+            let result = nonZeroTerms[0];
+            for (let i = 1; i < nonZeroTerms.length; i++) {
+                const term = nonZeroTerms[i];
+                if (term.startsWith('-')) {
+                    result += term;
+                } else {
+                    result += '+' + term;
+                }
+            }
+            
+            return result;
+        }
+
+        function simplifyExpression(expr) {
+            
+            // Умножаем коэффициенты в каждом термине
+            const terms = splitTerms(expr);
+            if (terms.length > 1) {
+                const simplifiedTerms = terms.map(term => {
+                    if (term.includes('*')) {
+                        return multiplyCoefficients(term);
+                    }
+                    return term;
+                });
+                return combineTerms(simplifiedTerms);
+            }
+            
+            //Фиксим первый символ выражения
+            while (expr.startsWith('+') || expr.startsWith('*') || expr.startsWith('^') || expr.startsWith('--')) {
+                expr = expr.substring(1);
+            }
+            
+            // Умножение чисел
+            if (expr.includes('*')) {
+                expr = multiplyCoefficients(expr);
+            }
+            
+            return expr;
+        }
+
+        function calculate() {
+            const input = document.getElementById('expression').value;
+            const result = document.getElementById('result');
+            
+            try {
+                const derivative = diff(input);
+                result.innerHTML = `<span class="success">${derivative}</span>`;
+            } catch (error) {
+                result.innerHTML = `<span class="error">Error: ${error.message}</span>`;
+            }
+        }
+    </script>
 </body>
 </html>
